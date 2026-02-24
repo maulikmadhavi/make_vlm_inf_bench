@@ -1,0 +1,10 @@
+[workspace]
+authors = ["maulikmadhavi <maulikmadhavi@gmail.com>"]
+channels = ["conda-forge"]
+name = "vlm_inference_bench"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
