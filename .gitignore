@@ -1,3 +1,20 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Generated data and results (large files)
+data/images/
+data/videos/
+data/*.jsonl
+results/
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+htmlcov/
+.coverage

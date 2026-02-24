@@ -6,5 +6,22 @@ platforms = ["win-64"]
 version = "0.1.0"
 
 [tasks]
+generate-images = "python scripts/generate_data.py --images 100"
+generate-videos = "python scripts/generate_data.py --videos 100"
+generate-all = "python scripts/generate_data.py --images 100 --videos 100"
+bench-images = "python scripts/run_benchmark.py --dataset data/images_dataset.jsonl"
+bench-videos = "python scripts/run_benchmark.py --dataset data/videos_dataset.jsonl"
+analyze = "python scripts/analyze_results.py results/"
+test = "pytest tests/ -v"
 
 [dependencies]
+python = ">=3.10"
+openai = ">=1.0"
+requests = ">=2.31"
+pillow = ">=10.0"
+numpy = ">=1.24"
+tqdm = ">=4.65"
+pytest = ">=7.4"
+tabulate = ">=0.9"
+python-dotenv = ">=1.0"
+pynvml = ">=11.5"
