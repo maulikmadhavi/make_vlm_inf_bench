@@ -1,5 +1,6 @@
 """OpenAI-compatible streaming client for vllm, capturing TTFT per request."""
 import base64
+import mimetypes
 import time
 from pathlib import Path
 
@@ -11,26 +12,30 @@ from src.utils.logger import get_logger
 log = get_logger(__name__)
 
 
-def _encode_image(path: str) -> str:
+def _encode_media(path: str) -> str:
+    """Base64-encode any media file."""
     return base64.b64encode(Path(path).read_bytes()).decode("utf-8")
 
 
-def _encode_video(path: str) -> str:
-    return base64.b64encode(Path(path).read_bytes()).decode("utf-8")
+def _image_mime(path: str) -> str:
+    """Detect image MIME type from file extension; default to image/jpeg."""
+    mime, _ = mimetypes.guess_type(path)
+    return mime if mime and mime.startswith("image/") else "image/jpeg"
 
 
 def _build_messages(prompt: str, image_files: list[str], video_files: list[str]) -> list[dict]:
     content: list[dict] = []
 
     for img_path in image_files:
-        b64 = _encode_image(img_path)
+        b64 = _encode_media(img_path)
+        mime = _image_mime(img_path)
         content.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
         })
 
     for vid_path in video_files:
-        b64 = _encode_video(vid_path)
+        b64 = _encode_media(vid_path)
         content.append({
             "type": "video_url",
             "video_url": {"url": f"data:video/mp4;base64,{b64}"},
@@ -74,30 +79,44 @@ class VLMClient:
         t_start = time.perf_counter()
         ttft_ms: float | None = None
         chunks: list[str] = []
-        output_tokens = 0
+        output_tokens: int | None = None  # filled from usage data if available
 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             max_tokens=MAX_TOKENS,
             stream=True,
+            stream_options={"include_usage": True},
             timeout=REQUEST_TIMEOUT,
         )
 
+        chunk_count = 0
         for chunk in stream:
-            if ttft_ms is None:
+            if ttft_ms is None and chunk.choices:
                 ttft_ms = (time.perf_counter() - t_start) * 1000
 
             delta = chunk.choices[0].delta.content if chunk.choices else None
             if delta:
                 chunks.append(delta)
-                output_tokens += 1  # approximate; 1 chunk ≈ 1 token for vllm
+                chunk_count += 1
+
+            # The final chunk carries accurate token usage when include_usage=True
+            if chunk.usage is not None:
+                output_tokens = chunk.usage.completion_tokens
 
         total_time_ms = (time.perf_counter() - t_start) * 1000
         total_time_s = total_time_ms / 1000
 
+        # Fall back to chunk count if server didn't return usage
+        if output_tokens is None:
+            output_tokens = chunk_count
+
+        # If no content tokens arrived treat TTFT as the full request time
+        if ttft_ms is None:
+            ttft_ms = total_time_ms
+
         return {
-            "ttft_ms": round(ttft_ms or 0, 2),
+            "ttft_ms": round(ttft_ms, 2),
             "total_time_ms": round(total_time_ms, 2),
             "output_tokens": output_tokens,
             "tokens_per_second": round(output_tokens / total_time_s, 2) if total_time_s > 0 else 0,

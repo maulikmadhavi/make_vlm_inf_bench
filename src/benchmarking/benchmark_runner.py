@@ -1,11 +1,13 @@
 """Loads a JSONL dataset, runs inference, collects metrics, saves results."""
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
 from src.benchmarking.vllm_client import VLMClient
 from src.benchmarking.metrics_collector import GPUMonitor, aggregate
-from src.utils.config import RESULTS_DIR, MODEL_NAME
+from src.utils.config import RESULTS_DIR, MODEL_NAME, VLLM_ENDPOINT
 from src.utils.json_utils import read_jsonl, write_json
 from src.utils.logger import get_logger
 
@@ -17,6 +19,8 @@ def run_benchmark(
     output_path: str | Path | None = None,
     concurrency: int = 1,
     gpu_device: int = 0,
+    endpoint: str = VLLM_ENDPOINT,
+    model: str = MODEL_NAME,
 ) -> dict:
     """
     Run the benchmark for all records in `dataset_path`.
@@ -26,6 +30,8 @@ def run_benchmark(
         output_path:  Where to save the JSON results (default: results/<dataset_stem>_results.json).
         concurrency:  Number of parallel requests (default: 1 = sequential).
         gpu_device:   CUDA device index to monitor.
+        endpoint:     vllm service URL.
+        model:        Model name to use for inference.
 
     Returns:
         Full results dict (also saved to disk).
@@ -38,48 +44,61 @@ def run_benchmark(
     records = list(read_jsonl(dataset_path))
     log.info(f"Loaded {len(records)} records from {dataset_path}")
 
-    client = VLMClient()
+    client = VLMClient(endpoint=endpoint, model=model)
     gpu_monitor = GPUMonitor(device_index=gpu_device)
 
     ttft_list: list[float] = []
     tps_list: list[float] = []
     per_request: list[dict] = []
     errors: list[str] = []
+    _lock = threading.Lock()
+
+    def _run_one(idx: int, record: dict) -> None:
+        prompt = record.get("prompt", "Describe this.")
+        image_files = record.get("image_files", [])
+        video_files = record.get("video_files", [])
+        log.info(f"[{idx}/{len(records)}] Running inference...")
+        try:
+            result = client.infer(prompt, image_files, video_files)
+            with _lock:
+                ttft_list.append(result["ttft_ms"])
+                tps_list.append(result["tokens_per_second"])
+                per_request.append({
+                    "id": idx,
+                    "prompt": prompt[:80],
+                    "ttft_ms": result["ttft_ms"],
+                    "total_time_ms": result["total_time_ms"],
+                    "output_tokens": result["output_tokens"],
+                    "tokens_per_second": result["tokens_per_second"],
+                })
+        except Exception as e:
+            log.error(f"Request {idx} failed: {e}")
+            with _lock:
+                errors.append(str(e))
 
     benchmark_start = time.perf_counter()
     gpu_monitor.start()
 
-    for idx, record in enumerate(records, 1):
-        prompt = record.get("prompt", "Describe this.")
-        image_files = record.get("image_files", [])
-        video_files = record.get("video_files", [])
-
-        log.info(f"[{idx}/{len(records)}] Running inference...")
-        try:
-            result = client.infer(prompt, image_files, video_files)
-            ttft_list.append(result["ttft_ms"])
-            tps_list.append(result["tokens_per_second"])
-            per_request.append({
-                "id": idx,
-                "prompt": prompt[:80],
-                "ttft_ms": result["ttft_ms"],
-                "total_time_ms": result["total_time_ms"],
-                "output_tokens": result["output_tokens"],
-                "tokens_per_second": result["tokens_per_second"],
-            })
-        except Exception as e:
-            log.error(f"Request {idx} failed: {e}")
-            errors.append(str(e))
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = {
+            executor.submit(_run_one, idx, record): idx
+            for idx, record in enumerate(records, 1)
+        }
+        for future in as_completed(futures):
+            future.result()  # re-raise any unexpected exception
 
     gpu_monitor.stop()
     total_elapsed = time.perf_counter() - benchmark_start
+
+    # Sort per_request by original id for deterministic output
+    per_request.sort(key=lambda r: r["id"])
 
     successful = len(per_request)
     rps = round(successful / total_elapsed, 4) if total_elapsed > 0 else 0
 
     results = {
         "dataset": str(dataset_path),
-        "model": MODEL_NAME,
+        "model": model,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total_requests": len(records),
         "successful_requests": successful,

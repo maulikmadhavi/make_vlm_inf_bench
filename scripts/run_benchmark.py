@@ -36,6 +36,8 @@ def main() -> None:
         output_path=args.output,
         concurrency=args.concurrency,
         gpu_device=args.gpu_device,
+        endpoint=args.endpoint,
+        model=args.model,
     )
 
 
