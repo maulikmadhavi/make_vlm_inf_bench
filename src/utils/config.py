@@ -17,7 +17,6 @@ MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen3-VL-8B-Instruct")
 
 # Public media sources
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")  # Required for video downloads
-COCO_IMAGE_URL = "http://images.cocodataset.org/val2017/{filename}"
 COCO_ANNOTATIONS_URL = "http://images.cocodataset.org/annotations/image_info_val2017.zip"
 
 # Dataset defaults

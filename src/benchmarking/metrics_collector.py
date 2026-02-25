@@ -59,6 +59,20 @@ class GPUMonitor:
         if self._thread:
             self._thread.join(timeout=5)
 
+    def close(self) -> None:
+        """Release pynvml resources."""
+        if getattr(self, "_stop_event", None) is not None:
+            self.stop()
+        if _PYNVML_AVAILABLE and getattr(self, "_handle", None) is not None:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+            self._handle = None
+
+    def __del__(self) -> None:
+        self.close()
+
     def _poll(self) -> None:
         while not self._stop_event.is_set():
             if self._handle:
@@ -79,12 +93,15 @@ class GPUMonitor:
             return {"gpu_available": False}
         mem_pcts = [s.memory_pct for s in self._samples]
         util_pcts = [s.utilization_pct for s in self._samples]
+        used_mbs = [s.memory_used_mb for s in self._samples]
+        # memory_total_mb is constant for a given device; any sample is representative
+        total_mb = self._samples[0].memory_total_mb
         return {
             "gpu_available": True,
             "memory_utilization_pct": round(sum(mem_pcts) / len(mem_pcts), 1),
             "compute_utilization_pct": round(sum(util_pcts) / len(util_pcts), 1),
-            "memory_used_mb": round(self._samples[-1].memory_used_mb, 1),
-            "memory_total_mb": round(self._samples[-1].memory_total_mb, 1),
+            "memory_used_mb": round(sum(used_mbs) / len(used_mbs), 1),
+            "memory_total_mb": round(total_mb, 1),
         }
 
 
@@ -98,8 +115,12 @@ def aggregate(values: list[float]) -> dict:
     n = len(sorted_vals)
 
     def percentile(p: float) -> float:
-        idx = int(p / 100 * n)
-        return sorted_vals[min(idx, n - 1)]
+        # Linear interpolation (consistent with numpy percentile / statistics.quantiles)
+        pos = (p / 100) * (n - 1)
+        lo = int(pos)
+        hi = min(lo + 1, n - 1)
+        frac = pos - lo
+        return sorted_vals[lo] + frac * (sorted_vals[hi] - sorted_vals[lo])
 
     return {
         "mean": round(statistics.mean(values), 3),
