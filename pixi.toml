@@ -12,6 +12,7 @@ generate-all = "python scripts/generate_data.py --images 100 --videos 100"
 bench-images = "python scripts/run_benchmark.py --dataset data/images_dataset.jsonl"
 bench-videos = "python scripts/run_benchmark.py --dataset data/videos_dataset.jsonl"
 analyze = "python scripts/analyze_results.py results/"
+analyze-vllm = "python scripts/analyze_vllm_bench.py results/"
 test = "pytest tests/ -v"
 
 [dependencies]

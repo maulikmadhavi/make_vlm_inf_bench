@@ -100,6 +100,22 @@ vllm bench throughput \
   --output-json results/throughput_results.json
 ```
 
+**Review results:**
+
+```bash
+# Aggregate summary table (all JSON files in results/)
+python scripts/analyze_vllm_bench.py results/
+
+# Per-request TTFT / TPOT / ITL breakdown (needs --save-detailed)
+python scripts/analyze_vllm_bench.py results/ --per-request
+
+# Show all 100 rows
+python scripts/analyze_vllm_bench.py results/ --per-request --rows 100
+
+# Or via Pixi
+pixi run analyze-vllm
+```
+
 **Key flags for `vllm bench serve`:**
 
 | Flag | Description |

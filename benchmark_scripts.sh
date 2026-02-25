@@ -113,7 +113,22 @@ vllm bench serve \
 
 
 # ---------------------------------------------------------------------------
-# 3. Offline throughput benchmark — vllm bench throughput
+# 3. Analyze vllm bench results
+#    Summary table for all JSON files saved by --save-result
+# ---------------------------------------------------------------------------
+
+# Aggregate summary across all runs
+python scripts/analyze_vllm_bench.py "$RESULT_DIR"
+
+# Per-request TTFT/TPOT/ITL table (requires --save-detailed, shows first 20)
+python scripts/analyze_vllm_bench.py "$RESULT_DIR" --per-request
+
+# Show more rows
+python scripts/analyze_vllm_bench.py "$RESULT_DIR" --per-request --rows 100
+
+
+# ---------------------------------------------------------------------------
+# 4. Offline throughput benchmark — vllm bench throughput
 #    Loads the model directly (no server needed) and measures max tokens/sec.
 # ---------------------------------------------------------------------------
 
